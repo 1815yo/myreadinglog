@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RE★Ding 閱讀紀錄</title>
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="RE★Ding" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700;900&display=swap" rel="stylesheet" />
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -314,9 +318,12 @@ function BookDetail({book,onUpdate,onClose}) {
   );
 }
 
-function BookCard({book,onTimer,onOpen,onEdit}) {
+function BookCard({book,onTimer,onOpen,onEdit,tick}) {
   const isActive=book.timerActive;
   const st=STATUS_STYLE[book.status]||STATUS_STYLE["想讀"];
+  const displaySeconds=isActive&&book.timerStart
+    ?((book.totalSeconds||0)+Math.floor((Date.now()-book.timerStart)/1000))
+    :(book.totalSeconds||0);
   return h("div",{style:{background:C.bgCard,border:`2px solid ${isActive?C.wine:C.border}`,borderRadius:12,boxShadow:isActive?`4px 4px 0 ${C.wine}`:`3px 3px 0 ${C.borderDark}`,display:"flex",flexDirection:"column",transition:"all 0.25s"}},
     h("div",{style:{height:130,background:book.cover?`url(${book.cover}) center/cover`:`repeating-linear-gradient(45deg,${C.bgDeep},${C.bgDeep} 8px,${C.bg} 8px,${C.bg} 16px)`,display:"flex",alignItems:"center",justifyContent:"center",borderBottom:`2px solid ${C.border}`,position:"relative",overflow:"hidden",borderRadius:"10px 10px 0 0"}},
       !book.cover&&h("span",{style:{fontSize:36,opacity:0.25}},"📖"),
@@ -344,7 +351,7 @@ function BookCard({book,onTimer,onOpen,onEdit}) {
       book.rating>0&&h("div",{style:{marginBottom:8}},h(StarRating,{value:book.rating})),
       h("div",{style:{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",marginBottom:10}},
         h("div",{style:{color:C.inkLight,fontSize:10,letterSpacing:2,marginBottom:3}},"累計閱讀時間"),
-        h("div",{style:{color:isActive?C.wine:C.inkMid,fontSize:18,fontWeight:700,letterSpacing:1}},formatTime(book.totalSeconds||0))
+        h("div",{style:{color:isActive?C.wine:C.inkMid,fontSize:18,fontWeight:700,letterSpacing:1}},formatTime(displaySeconds))
       ),
       h("div",{style:{display:"flex",gap:8,marginTop:"auto"}},
         h("button",{onClick:()=>onTimer(book.id),style:{flex:2,padding:"9px 0",borderRadius:6,cursor:"pointer",background:isActive?C.wine:"transparent",border:`2px solid ${C.wine}`,color:isActive?C.cream:C.wine,fontSize:13,fontWeight:700,letterSpacing:1,transition:"all 0.2s"}},isActive?"⏹ 停止":"▶ 開始閱讀"),
@@ -427,20 +434,41 @@ function App() {
   const [filter,setFilter]=useState("全部");
 
   useEffect(()=>{ saveBooks(books); },[books]);
+
+  // 每秒強制重繪，讓畫面顯示正確時間
+  const [tick,setTick]=useState(0);
   useEffect(()=>{
-    const id=setInterval(()=>{
-      setBooks(prev=>prev.map(b=>b.timerActive?{...b,totalSeconds:(b.totalSeconds||0)+1}:b));
-    },1000);
+    const id=setInterval(()=>setTick(t=>t+1),1000);
     return ()=>clearInterval(id);
   },[]);
 
-  const addBook=d=>setBooks(p=>[...p,{id:Date.now(),totalSeconds:0,timerActive:false,highlights:[],notes:[],tags:[],...d}]);
-  const toggleTimer=id=>setBooks(p=>p.map(b=>b.id===id?{...b,timerActive:!b.timerActive}:b));
+  // 算出某本書「現在」的累計秒數（含正在計時的部分）
+  function getDisplaySeconds(book) {
+    if(!book.timerActive||!book.timerStart) return book.totalSeconds||0;
+    const elapsed=Math.floor((Date.now()-book.timerStart)/1000);
+    return (book.totalSeconds||0)+elapsed;
+  }
+
+  const addBook=d=>setBooks(p=>[...p,{id:Date.now(),totalSeconds:0,timerActive:false,timerStart:null,highlights:[],notes:[],tags:[],...d}]);
+
+  // 開始：記錄當下時間戳；停止：把經過秒數加回 totalSeconds
+  const toggleTimer=id=>setBooks(p=>p.map(b=>{
+    if(b.id!==id) return b;
+    if(!b.timerActive){
+      return {...b,timerActive:true,timerStart:Date.now()};
+    } else {
+      const elapsed=b.timerStart?Math.floor((Date.now()-b.timerStart)/1000):0;
+      return {...b,timerActive:false,timerStart:null,totalSeconds:(b.totalSeconds||0)+elapsed};
+    }
+  }));
   const updateBook=u=>{setBooks(p=>p.map(b=>b.id===u.id?u:b)); if(detailBook)setDetailBook(u);};
 
   const filterOpts=["全部",...STATUS_OPTIONS];
   const filtered=filter==="全部"?books:books.filter(b=>b.status===filter);
-  const total=books.reduce((s,b)=>s+(b.totalSeconds||0),0);
+  const total=books.reduce((s,b)=>{
+    if(b.timerActive&&b.timerStart) return s+(b.totalSeconds||0)+Math.floor((Date.now()-b.timerStart)/1000);
+    return s+(b.totalSeconds||0);
+  },0);
 
   const navBtn=active=>({
     padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,letterSpacing:1,
@@ -489,7 +517,7 @@ function App() {
               h("div",{style:{color:C.inkLight,fontSize:15,letterSpacing:2}},"尚無書籍，點擊「新增」開始記錄吧")
             )
             :h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:18}},
-              filtered.map(book=>h(BookCard,{key:book.id,book,onTimer:toggleTimer,onOpen:setDetailBook,onEdit:setEditBook}))
+              filtered.map(book=>h(BookCard,{key:book.id,book,onTimer:toggleTimer,onOpen:setDetailBook,onEdit:setEditBook,tick}))
             )
         )
     ),
