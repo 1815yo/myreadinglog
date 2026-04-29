@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RE★Ding 閱讀紀錄</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700;900&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Noto Serif TC', serif; }
+    body { background: #f5f0e8; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #f5f0e8; }
+    ::-webkit-scrollbar-thumb { background: #c8b89a; border-radius: 3px; }
+    input::placeholder, textarea::placeholder { color: #9a7070; }
+    @keyframes redpulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(1.7)} }
+    @keyframes fadeInUp { from{opacity:0;transform:translate(-50%,12px)} to{opacity:1;transform:translate(-50%,0)} }
+    button { font-family: 'Noto Serif TC', serif; }
+    input, textarea { font-family: 'Noto Serif TC', serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+const { useState, useEffect } = React;
+const h = React.createElement;
+
+const STORAGE_KEY = "reding_books_v2";
+const C = {
+  bg:"#f5f0e8", bgDeep:"#ede7d9", bgCard:"#faf7f2",
+  wine:"#6b1a2a", wineLight:"#8b2a3e", wineMid:"#a03348", wineGlow:"#c0485e",
+  ink:"#2c1a1a", inkMid:"#5c3a3a", inkLight:"#9a7070",
+  border:"#c8b89a", borderDark:"#a89070", gold:"#c8941a", cream:"#fff8ee",
+};
+const STATUS_OPTIONS = ["想讀","在讀","已讀","棄讀"];
+const STATUS_STYLE = {
+  想讀:{ color:C.inkMid,    bg:C.bgDeep,  border:C.borderDark },
+  在讀:{ color:C.wine,      bg:"#f5e8e8", border:C.wineMid },
+  已讀:{ color:C.wineLight, bg:"#f0e0e0", border:C.wine },
+  棄讀:{ color:C.inkLight,  bg:C.bgCard,  border:C.border },
+};
+const DEFAULT_TAG_OPTIONS = ["文學作品","網文","同人文"];
+const TAG_STYLE = { color:C.wineLight, bg:"#f5e8e8", border:C.wineMid };
+const CUSTOM_TAG_STYLE = { color:C.inkMid, bg:C.bgDeep, border:C.borderDark };
+
+function getTagStyle(tag) {
+  return DEFAULT_TAG_OPTIONS.includes(tag) ? TAG_STYLE : CUSTOM_TAG_STYLE;
+}
+function loadBooks() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; }
+}
+function saveBooks(b) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(b)); } catch {}
+}
+function formatTime(s) {
+  const hh=Math.floor(s/3600), mm=Math.floor((s%3600)/60), ss=s%60;
+  if(hh>0) return `${hh}時${mm}分${ss}秒`;
+  if(mm>0) return `${mm}分${ss}秒`;
+  return `${ss}秒`;
+}
+function formatHours(s) { return (s/3600).toFixed(1)+"h"; }
+
+function StarRating({value, onChange}) {
+  const [hover, setHover] = useState(0);
+  return h("div",{style:{display:"flex",gap:3}},
+    [1,2,3,4,5].map(n=>h("span",{
+      key:n,
+      onClick:()=>onChange&&onChange(n),
+      onMouseEnter:()=>onChange&&setHover(n),
+      onMouseLeave:()=>onChange&&setHover(0),
+      style:{fontSize:18,cursor:onChange?"pointer":"default",color:n<=(hover||value)?C.gold:C.border,transition:"color 0.12s"}
+    },"★"))
+  );
+}
+
+function Divider() {
+  return h("div",{style:{display:"flex",alignItems:"center",gap:10,margin:"18px 0"}},
+    h("div",{style:{flex:1,height:1,background:C.border}}),
+    h("span",{style:{color:C.wineGlow,fontSize:12}},"◆"),
+    h("div",{style:{flex:1,height:1,background:C.border}})
+  );
+}
+
+function Toast({message, onDone}) {
+  useEffect(()=>{ const t=setTimeout(onDone,2200); return ()=>clearTimeout(t); },[]);
+  return h("div",{style:{
+    position:"fixed",bottom:32,left:"50%",transform:"translateX(-50%)",
+    background:C.wine,color:C.cream,padding:"10px 28px",
+    borderRadius:6,fontSize:13,letterSpacing:2,
+    boxShadow:`0 4px 16px ${C.wine}60`,zIndex:9999,
+    animation:"fadeInUp 0.25s ease"
+  }},"✓ "+message);
+}
+
+function TagSelector({tags, onChange}) {
+  const [customInput, setCustomInput] = useState("");
+  const toggleTag = t => onChange(tags.includes(t)?tags.filter(x=>x!==t):[...tags,t]);
+  const addCustom = () => {
+    const v=customInput.trim();
+    if(!v||tags.includes(v))return;
+    onChange([...tags,v]); setCustomInput("");
+  };
+  return h("div",null,
+    h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}},
+      DEFAULT_TAG_OPTIONS.map(t=>{
+        const a=tags.includes(t); const st=getTagStyle(t);
+        return h("button",{key:t,onClick:()=>toggleTag(t),style:{
+          padding:"4px 14px",borderRadius:6,fontSize:12,cursor:"pointer",
+          border:`1px solid ${a?st.border:C.border}`,
+          background:a?st.bg:"transparent",color:a?st.color:C.inkLight,transition:"all 0.15s"
+        }},t);
+      })
+    ),
+    tags.filter(t=>!DEFAULT_TAG_OPTIONS.includes(t)).map(t=>
+      h("span",{key:t,style:{
+        display:"inline-flex",alignItems:"center",gap:4,
+        padding:"3px 10px",borderRadius:6,fontSize:12,marginRight:6,marginBottom:6,
+        border:`1px solid ${CUSTOM_TAG_STYLE.border}`,background:CUSTOM_TAG_STYLE.bg,color:CUSTOM_TAG_STYLE.color
+      }},t,
+        h("span",{onClick:()=>toggleTag(t),style:{cursor:"pointer",opacity:0.6}},"✕")
+      )
+    ),
+    h("div",{style:{display:"flex",gap:6,marginTop:4}},
+      h("input",{
+        value:customInput,
+        onChange:e=>setCustomInput(e.target.value),
+        onKeyDown:e=>e.key==="Enter"&&addCustom(),
+        placeholder:"自定義標籤...",
+        style:{flex:1,background:C.cream,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 14px",color:C.ink,fontSize:12,outline:"none"}
+      }),
+      h("button",{onClick:addCustom,style:{
+        padding:"5px 14px",borderRadius:6,background:"transparent",
+        border:`1px solid ${C.border}`,color:C.inkMid,fontSize:12,cursor:"pointer"
+      }},"＋ 新增")
+    )
+  );
+}
+
+function BookFormFields({title,setTitle,author,setAuthor,pages,setPages,cover,setCover,status,setStatus,tags,setTags}) {
+  const inp = {width:"100%",background:C.cream,border:`1px solid ${C.border}`,borderRadius:6,padding:"9px 14px",color:C.ink,fontSize:14,outline:"none",boxSizing:"border-box"};
+  const lbl = {color:C.inkMid,fontSize:11,letterSpacing:2,display:"block",marginBottom:6};
+  return h("div",null,
+    [["書名 ＊",title,setTitle,"請輸入書名"],["作　者",author,setAuthor,"請輸入作者"],["總頁數",pages,setPages,"如 320"],["封面URL",cover,setCover,"https://..."]].map(([label,val,set,ph])=>
+      h("div",{key:label,style:{marginBottom:14}},
+        h("label",{style:lbl},label),
+        h("input",{value:val,onChange:e=>set(e.target.value),placeholder:ph,style:inp})
+      )
+    ),
+    h("div",{style:{marginBottom:14}},
+      h("label",{style:lbl},"閱讀狀態"),
+      h("div",{style:{display:"flex",gap:6,flexWrap:"wrap"}},
+        STATUS_OPTIONS.map(s=>{
+          const st=STATUS_STYLE[s]; const a=status===s;
+          return h("button",{key:s,onClick:()=>setStatus(s),style:{
+            padding:"5px 16px",borderRadius:6,fontSize:13,cursor:"pointer",
+            border:`1px solid ${a?st.border:C.border}`,background:a?st.bg:"transparent",
+            color:a?st.color:C.inkLight,transition:"all 0.15s"
+          }},s);
+        })
+      )
+    ),
+    h("div",{style:{marginBottom:20}},
+      h("label",{style:lbl},"書籍標籤（可複選）"),
+      h(TagSelector,{tags,onChange:setTags})
+    )
+  );
+}
+
+function AddBookModal({onAdd,onClose}) {
+  const [title,setTitle]=useState(""); const [author,setAuthor]=useState("");
+  const [pages,setPages]=useState(""); const [status,setStatus]=useState("想讀");
+  const [cover,setCover]=useState(""); const [tags,setTags]=useState([]);
+  return h("div",{
+    style:{position:"fixed",inset:0,background:"rgba(44,26,26,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,backdropFilter:"blur(3px)"},
+    onClick:onClose
+  },
+    h("div",{onClick:e=>e.stopPropagation(),style:{background:C.bgCard,border:`2px solid ${C.wine}`,borderRadius:10,padding:32,width:440,maxWidth:"93vw",boxShadow:`6px 6px 0 ${C.wine}`,maxHeight:"90vh",overflowY:"auto"}},
+      h("div",{style:{textAlign:"center",marginBottom:20}},
+        h("div",{style:{fontSize:20,color:C.wine,fontWeight:700,letterSpacing:4}},"── 新增書籍 ──")
+      ),
+      h(Divider,null),
+      h(BookFormFields,{title,setTitle,author,setAuthor,pages,setPages,cover,setCover,status,setStatus,tags,setTags}),
+      h(Divider,null),
+      h("div",{style:{display:"flex",gap:10}},
+        h("button",{onClick:onClose,style:{flex:1,padding:"11px",borderRadius:6,cursor:"pointer",background:"transparent",border:`1px solid ${C.border}`,color:C.inkLight,fontSize:14}},"取消"),
+        h("button",{onClick:()=>{if(!title.trim())return; onAdd({title,author,pages:parseInt(pages)||0,status,cover,tags}); onClose();},style:{flex:2,padding:"11px",borderRadius:6,cursor:"pointer",background:C.wine,border:"none",color:C.cream,fontSize:14,fontWeight:700,letterSpacing:2}},"登録する")
+      )
+    )
+  );
+}
+
+function EditBookModal({book,onUpdate,onClose,onDelete}) {
+  const [title,setTitle]=useState(book.title||""); const [author,setAuthor]=useState(book.author||"");
+  const [pages,setPages]=useState(book.pages||""); const [status,setStatus]=useState(book.status||"想讀");
+  const [cover,setCover]=useState(book.cover||""); const [tags,setTags]=useState(book.tags||[]);
+  return h("div",{
+    style:{position:"fixed",inset:0,background:"rgba(44,26,26,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,backdropFilter:"blur(3px)"},
+    onClick:onClose
+  },
+    h("div",{onClick:e=>e.stopPropagation(),style:{background:C.bgCard,border:`2px solid ${C.wine}`,borderRadius:10,padding:32,width:440,maxWidth:"93vw",boxShadow:`6px 6px 0 ${C.wine}`,maxHeight:"90vh",overflowY:"auto"}},
+      h("div",{style:{textAlign:"center",marginBottom:20}},
+        h("div",{style:{fontSize:20,color:C.wine,fontWeight:700,letterSpacing:4}},"── 編輯書籍 ──")
+      ),
+      h(Divider,null),
+      h(BookFormFields,{title,setTitle,author,setAuthor,pages,setPages,cover,setCover,status,setStatus,tags,setTags}),
+      h(Divider,null),
+      h("div",{style:{display:"flex",gap:10}},
+        h("button",{onClick:onClose,style:{flex:1,padding:"11px",borderRadius:6,cursor:"pointer",background:"transparent",border:`1px solid ${C.border}`,color:C.inkLight,fontSize:14}},"取消"),
+        h("button",{onClick:()=>{if(!title.trim())return; onUpdate({...book,title,author,pages:parseInt(pages)||0,status,cover,tags}); onClose();},style:{flex:2,padding:"11px",borderRadius:6,cursor:"pointer",background:C.wine,border:"none",color:C.cream,fontSize:14,fontWeight:700,letterSpacing:2}},"儲存修改")
+      ),
+      h("button",{
+        onClick:()=>{ if(window.confirm("確定要刪除「"+book.title+"」嗎？此操作無法復原。")){ onDelete(book.id); onClose(); } },
+        style:{marginTop:14,width:"100%",padding:"9px",borderRadius:6,cursor:"pointer",background:"transparent",border:`1px solid ${C.inkLight}`,color:C.inkLight,fontSize:13,letterSpacing:1}
+      },"🗑 刪除這本書")
+    )
+  );
+}
+
+function BookDetail({book,onUpdate,onClose}) {
+  const [detailTab,setDetailTab]=useState("notes");
+  const [newNote,setNewNote]=useState("");
+  const [rating,setRating]=useState(book.rating||0);
+  const [newHL,setNewHL]=useState("");
+  const [newHLNote,setNewHLNote]=useState("");
+  const [toast,setToast]=useState(null);
+
+  const ta={width:"100%",background:C.cream,border:`1px solid ${C.border}`,borderRadius:6,padding:"10px 14px",color:C.ink,fontSize:13,resize:"vertical",outline:"none",boxSizing:"border-box",lineHeight:1.8};
+
+  const saveNote=()=>{
+    if(!newNote.trim())return;
+    const noteEntry={id:Date.now(),text:newNote,date:new Date().toLocaleString("zh-TW")};
+    onUpdate({...book,rating,notes:[...(book.notes||[]),noteEntry]});
+    setNewNote(""); setToast("心得已儲存！");
+  };
+  const addHL=()=>{
+    if(!newHL.trim())return;
+    onUpdate({...book,highlights:[...(book.highlights||[]),{id:Date.now(),text:newHL,comment:newHLNote,date:new Date().toLocaleString("zh-TW")}]});
+    setNewHL(""); setNewHLNote("");
+  };
+  const tabBtn=active=>({
+    flex:1,padding:"8px 0",borderRadius:6,cursor:"pointer",fontSize:13,letterSpacing:1,
+    background:active?C.wine:"transparent",border:`1px solid ${active?C.wine:C.border}`,
+    color:active?C.cream:C.inkMid,transition:"all 0.2s"
+  });
+
+  return h("div",{
+    style:{position:"fixed",inset:0,background:"rgba(44,26,26,0.65)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,backdropFilter:"blur(4px)"},
+    onClick:onClose
+  },
+    h("div",{onClick:e=>e.stopPropagation(),style:{background:C.bgCard,border:`2px solid ${C.wine}`,borderRadius:10,padding:32,width:560,maxWidth:"95vw",maxHeight:"88vh",overflowY:"auto",boxShadow:`8px 8px 0 ${C.wine}40`}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}},
+        h("div",null,
+          h("h2",{style:{color:C.wine,fontSize:20,fontWeight:700,lineHeight:1.4}},book.title),
+          book.author&&h("p",{style:{color:C.inkLight,fontSize:13}},book.author)
+        ),
+        h("button",{onClick:onClose,style:{background:"none",border:"none",color:C.inkLight,fontSize:20,cursor:"pointer"}},"✕")
+      ),
+      (book.tags||[]).length>0&&h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}},
+        (book.tags||[]).map(t=>{
+          const tc=getTagStyle(t);
+          return h("span",{key:t,style:{padding:"2px 12px",borderRadius:6,fontSize:11,border:`1px solid ${tc.border}`,background:tc.bg,color:tc.color}},t);
+        })
+      ),
+      h(Divider,null),
+      h("div",{style:{marginBottom:16}},
+        h("div",{style:{color:C.inkMid,fontSize:11,letterSpacing:2,marginBottom:8}},"評　分"),
+        h(StarRating,{value:rating,onChange:r=>{setRating(r);onUpdate({...book,rating:r});}})
+      ),
+      h(Divider,null),
+      h("div",{style:{display:"flex",gap:8,marginBottom:20}},
+        h("button",{style:tabBtn(detailTab==="notes"),onClick:()=>setDetailTab("notes")},"📝 閱讀心得"),
+        h("button",{style:tabBtn(detailTab==="highlights"),onClick:()=>setDetailTab("highlights")},
+          "✏️ 劃線摘錄",
+          (book.highlights||[]).length>0&&h("span",{style:{marginLeft:5,fontSize:11,opacity:0.75}},"("+(book.highlights||[]).length+")")
+        )
+      ),
+      detailTab==="notes"&&h("div",null,
+        h("div",{style:{color:C.inkMid,fontSize:11,letterSpacing:2,marginBottom:8}},"新增心得"),
+        h("textarea",{value:newNote,onChange:e=>setNewNote(e.target.value),placeholder:"記錄你的閱讀感想…",rows:4,style:ta}),
+        h("button",{onClick:saveNote,style:{marginTop:10,padding:"8px 22px",borderRadius:6,background:C.wine,border:"none",color:C.cream,fontSize:12,cursor:"pointer",letterSpacing:2}},"儲存心得"),
+        (book.notes||[]).length>0&&h("div",{style:{marginTop:20}},
+          h("div",{style:{color:C.inkMid,fontSize:11,letterSpacing:2,marginBottom:12}},"歷史心得"),
+          h("div",{style:{display:"flex",flexDirection:"column",gap:10}},
+            [...(book.notes||[])].reverse().map(n=>
+              h("div",{key:n.id,style:{background:C.bg,borderLeft:`3px solid ${C.wineMid}`,padding:"12px 14px",borderRadius:"0 8px 8px 0",position:"relative"}},
+                h("p",{style:{color:C.ink,fontSize:13,lineHeight:1.8,marginBottom:4}},n.text),
+                h("span",{style:{color:C.inkLight,fontSize:11}},n.date),
+                h("button",{onClick:()=>onUpdate({...book,notes:(book.notes||[]).filter(x=>x.id!==n.id)}),style:{position:"absolute",top:8,right:8,background:"none",border:"none",color:C.inkLight,cursor:"pointer",fontSize:13}},"✕")
+              )
+            )
+          )
+        )
+      ),
+      detailTab==="highlights"&&h("div",null,
+        h("div",{style:{color:C.inkMid,fontSize:11,letterSpacing:2,marginBottom:8}},"新增劃線"),
+        h("textarea",{value:newHL,onChange:e=>setNewHL(e.target.value),placeholder:"貼上書中的劃線文字…",rows:2,style:{...ta,marginBottom:8}}),
+        h("input",{value:newHLNote,onChange:e=>setNewHLNote(e.target.value),placeholder:"附上簡短心得（選填）",style:{width:"100%",background:C.cream,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 14px",color:C.ink,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:8}}),
+        h("button",{onClick:addHL,style:{padding:"8px 22px",borderRadius:6,border:`1px solid ${C.wine}`,background:"transparent",color:C.wine,fontSize:12,cursor:"pointer",letterSpacing:1}},"＋ 新增劃線"),
+        (book.highlights||[]).length>0&&h("div",{style:{display:"flex",flexDirection:"column",gap:12,marginTop:16}},
+          (book.highlights||[]).map(hh=>
+            h("div",{key:hh.id,style:{background:C.bg,borderLeft:`3px solid ${C.wineGlow}`,padding:"12px 14px",borderRadius:"0 8px 8px 0",position:"relative"}},
+              h("p",{style:{color:C.wine,fontSize:13,lineHeight:1.8,marginBottom:hh.comment?8:0,fontStyle:"italic"}},"「"+hh.text+"」"),
+              hh.comment&&h("p",{style:{color:C.inkMid,fontSize:12,marginBottom:4}},hh.comment),
+              h("span",{style:{color:C.inkLight,fontSize:11}},hh.date),
+              h("button",{onClick:()=>onUpdate({...book,highlights:(book.highlights||[]).filter(x=>x.id!==hh.id)}),style:{position:"absolute",top:8,right:8,background:"none",border:"none",color:C.inkLight,cursor:"pointer",fontSize:13}},"✕")
+            )
+          )
+        )
+      ),
+      toast&&h(Toast,{message:toast,onDone:()=>setToast(null)})
+    )
+  );
+}
+
+function BookCard({book,onTimer,onOpen,onEdit}) {
+  const isActive=book.timerActive;
+  const st=STATUS_STYLE[book.status]||STATUS_STYLE["想讀"];
+  return h("div",{style:{background:C.bgCard,border:`2px solid ${isActive?C.wine:C.border}`,borderRadius:12,boxShadow:isActive?`4px 4px 0 ${C.wine}`:`3px 3px 0 ${C.borderDark}`,display:"flex",flexDirection:"column",transition:"all 0.25s"}},
+    h("div",{style:{height:130,background:book.cover?`url(${book.cover}) center/cover`:`repeating-linear-gradient(45deg,${C.bgDeep},${C.bgDeep} 8px,${C.bg} 8px,${C.bg} 16px)`,display:"flex",alignItems:"center",justifyContent:"center",borderBottom:`2px solid ${C.border}`,position:"relative",overflow:"hidden",borderRadius:"10px 10px 0 0"}},
+      !book.cover&&h("span",{style:{fontSize:36,opacity:0.25}},"📖"),
+      h("button",{
+        onClick:()=>onEdit(book),title:"編輯書籍",
+        onMouseEnter:e=>e.currentTarget.style.background="rgba(44,26,26,0.65)",
+        onMouseLeave:e=>e.currentTarget.style.background="rgba(44,26,26,0.32)",
+        style:{position:"absolute",top:8,left:8,width:26,height:26,borderRadius:6,background:"rgba(44,26,26,0.32)",border:"none",color:"rgba(255,248,238,0.9)",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"background 0.15s"}
+      },"✏"),
+      h("div",{style:{position:"absolute",top:8,right:8,background:st.bg,border:`1px solid ${st.border}`,borderRadius:6,padding:"2px 10px",color:st.color,fontSize:11}},book.status),
+      isActive&&h("div",{style:{position:"absolute",bottom:8,left:8,display:"flex",alignItems:"center",gap:5}},
+        h("div",{style:{width:7,height:7,borderRadius:"50%",background:C.wineGlow,animation:"redpulse 1s infinite"}}),
+        h("span",{style:{color:C.wine,fontSize:10}},"閱讀中")
+      )
+    ),
+    h("div",{style:{padding:"14px 14px 12px",flex:1,display:"flex",flexDirection:"column"}},
+      (book.tags||[]).length>0&&h("div",{style:{display:"flex",gap:4,flexWrap:"wrap",marginBottom:6}},
+        (book.tags||[]).map(t=>{
+          const tc=getTagStyle(t);
+          return h("span",{key:t,style:{padding:"1px 9px",borderRadius:6,fontSize:10,border:`1px solid ${tc.border}`,background:tc.bg,color:tc.color}},t);
+        })
+      ),
+      h("h3",{style:{color:C.ink,fontSize:15,fontWeight:700,lineHeight:1.5,marginBottom:3,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}},book.title),
+      book.author&&h("p",{style:{color:C.inkLight,fontSize:12,marginBottom:8}},book.author),
+      book.rating>0&&h("div",{style:{marginBottom:8}},h(StarRating,{value:book.rating})),
+      h("div",{style:{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",marginBottom:10}},
+        h("div",{style:{color:C.inkLight,fontSize:10,letterSpacing:2,marginBottom:3}},"累計閱讀時間"),
+        h("div",{style:{color:isActive?C.wine:C.inkMid,fontSize:18,fontWeight:700,letterSpacing:1}},formatTime(book.totalSeconds||0))
+      ),
+      h("div",{style:{display:"flex",gap:8,marginTop:"auto"}},
+        h("button",{onClick:()=>onTimer(book.id),style:{flex:2,padding:"9px 0",borderRadius:6,cursor:"pointer",background:isActive?C.wine:"transparent",border:`2px solid ${C.wine}`,color:isActive?C.cream:C.wine,fontSize:13,fontWeight:700,letterSpacing:1,transition:"all 0.2s"}},isActive?"⏹ 停止":"▶ 開始閱讀"),
+        h("button",{onClick:()=>onOpen(book),style:{flex:1,padding:"9px 0",borderRadius:6,cursor:"pointer",background:"transparent",border:`1px solid ${C.border}`,color:C.inkMid,fontSize:12}},"詳情")
+      )
+    )
+  );
+}
+
+function Analytics({books}) {
+  const total=books.reduce((s,b)=>s+(b.totalSeconds||0),0);
+  const done=books.filter(b=>b.status==="已讀");
+  const avgR=done.filter(b=>b.rating).length?(done.filter(b=>b.rating).reduce((s,b)=>s+b.rating,0)/done.filter(b=>b.rating).length).toFixed(1):"—";
+  const top5=[...books].filter(b=>b.totalSeconds>0).sort((a,b)=>b.totalSeconds-a.totalSeconds).slice(0,5);
+  const maxS=top5[0]?.totalSeconds||1;
+  const tagCount={};
+  books.forEach(b=>(b.tags||[]).forEach(t=>{tagCount[t]=(tagCount[t]||0)+1;}));
+  const tagEntries=Object.entries(tagCount).sort((a,b)=>b[1]-a[1]);
+  const box={background:C.bgCard,border:`2px solid ${C.border}`,padding:"20px 18px",borderRadius:12,boxShadow:`3px 3px 0 ${C.borderDark}`};
+
+  return h("div",null,
+    h("div",{style:{fontSize:22,color:C.wine,fontWeight:700,letterSpacing:4,marginBottom:24}},"閱讀分析"),
+    h(Divider,null),
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:14,marginBottom:28}},
+      [{label:"總閱讀時長",value:formatHours(total),sub:formatTime(total)},{label:"書架藏書",value:books.length,sub:"本"},{label:"已讀完成",value:done.length,sub:"本"},{label:"棄讀",value:books.filter(b=>b.status==="棄讀").length,sub:"本"},{label:"平均評分",value:avgR,sub:"/ 5"}].map(s=>
+        h("div",{key:s.label,style:box},
+          h("div",{style:{color:C.inkLight,fontSize:10,letterSpacing:2,marginBottom:8}},s.label),
+          h("div",{style:{color:C.wine,fontSize:26,fontWeight:900,lineHeight:1}},s.value),
+          h("div",{style:{color:C.inkLight,fontSize:11,marginTop:4}},s.sub)
+        )
+      )
+    ),
+    top5.length>0&&h("div",{style:{...box,marginBottom:20}},
+      h("div",{style:{color:C.inkMid,fontSize:12,letterSpacing:3,marginBottom:18}},"閱讀時長排行"),
+      top5.map((b,i)=>
+        h("div",{key:b.id,style:{marginBottom:14}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:5}},
+            h("span",{style:{color:C.ink,fontSize:13,maxWidth:"70%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},b.title),
+            h("span",{style:{color:C.wine,fontSize:12}},formatHours(b.totalSeconds))
+          ),
+          h("div",{style:{background:C.bgDeep,height:6,borderRadius:3,overflow:"hidden"}},
+            h("div",{style:{height:"100%",width:`${(b.totalSeconds/maxS)*100}%`,background:[C.wine,C.wineMid,C.wineGlow,C.gold,C.inkLight][i],transition:"width 1s ease",borderRadius:3}})
+          )
+        )
+      )
+    ),
+    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}},
+      h("div",{style:box},
+        h("div",{style:{color:C.inkMid,fontSize:12,letterSpacing:3,marginBottom:16}},"書單狀態"),
+        STATUS_OPTIONS.map(s=>{
+          const count=books.filter(b=>b.status===s).length; const st=STATUS_STYLE[s];
+          return h("div",{key:s,style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+            h("span",{style:{color:st.color,fontSize:13,background:st.bg,padding:"1px 10px",border:`1px solid ${st.border}`,borderRadius:6}},s),
+            h("span",{style:{color:C.wine,fontSize:18,fontWeight:700}},count)
+          );
+        })
+      ),
+      h("div",{style:box},
+        h("div",{style:{color:C.inkMid,fontSize:12,letterSpacing:3,marginBottom:16}},"書籍類型"),
+        tagEntries.length===0
+          ?h("div",{style:{color:C.inkLight,fontSize:13}},"尚無標籤資料")
+          :tagEntries.map(([t,n])=>{
+            const tc=getTagStyle(t);
+            return h("div",{key:t,style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+              h("span",{style:{color:tc.color,fontSize:12,background:tc.bg,padding:"1px 10px",border:`1px solid ${tc.border}`,borderRadius:6}},t),
+              h("span",{style:{color:C.wine,fontSize:18,fontWeight:700}},n)
+            );
+          })
+      )
+    )
+  );
+}
+
+function App() {
+  const [books,setBooks]=useState(loadBooks);
+  const [showAdd,setShowAdd]=useState(false);
+  const [detailBook,setDetailBook]=useState(null);
+  const [editBook,setEditBook]=useState(null);
+  const [tab,setTab]=useState("shelf");
+  const [filter,setFilter]=useState("全部");
+
+  useEffect(()=>{ saveBooks(books); },[books]);
+  useEffect(()=>{
+    const id=setInterval(()=>{
+      setBooks(prev=>prev.map(b=>b.timerActive?{...b,totalSeconds:(b.totalSeconds||0)+1}:b));
+    },1000);
+    return ()=>clearInterval(id);
+  },[]);
+
+  const addBook=d=>setBooks(p=>[...p,{id:Date.now(),totalSeconds:0,timerActive:false,highlights:[],notes:[],tags:[],...d}]);
+  const toggleTimer=id=>setBooks(p=>p.map(b=>b.id===id?{...b,timerActive:!b.timerActive}:b));
+  const updateBook=u=>{setBooks(p=>p.map(b=>b.id===u.id?u:b)); if(detailBook)setDetailBook(u);};
+
+  const filterOpts=["全部",...STATUS_OPTIONS];
+  const filtered=filter==="全部"?books:books.filter(b=>b.status===filter);
+  const total=books.reduce((s,b)=>s+(b.totalSeconds||0),0);
+
+  const navBtn=active=>({
+    padding:"7px 18px",borderRadius:6,cursor:"pointer",fontSize:13,letterSpacing:1,
+    background:active?C.wine:"transparent",border:`1px solid ${active?C.wine:C.border}`,
+    color:active?C.cream:C.inkMid,transition:"all 0.2s",whiteSpace:"nowrap"
+  });
+
+  return h("div",{style:{minHeight:"100vh",background:C.bg,color:C.ink}},
+    // Header
+    h("div",{style:{borderBottom:`3px double ${C.wine}`,background:C.bgCard,position:"sticky",top:0,zIndex:100}},
+      h("div",{style:{height:5,background:`repeating-linear-gradient(90deg,${C.wine} 0,${C.wine} 12px,${C.bgCard} 12px,${C.bgCard} 18px)`}}),
+      h("div",{style:{maxWidth:1100,margin:"0 auto",padding:"0 16px"}},
+        h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",paddingTop:14,paddingBottom:12,gap:8,flexWrap:"wrap"}},
+          h("div",{style:{display:"flex",alignItems:"center",gap:10,minWidth:0}},
+            h("span",{style:{fontSize:26,lineHeight:1,flexShrink:0}},"🍅"),
+            h("div",{style:{minWidth:0}},
+              h("div",{style:{fontSize:20,fontWeight:900,color:C.wine,letterSpacing:4,lineHeight:1,whiteSpace:"nowrap"}},"RE★Ding"),
+              h("div",{style:{fontSize:10,color:C.inkLight,letterSpacing:2,marginTop:3,whiteSpace:"nowrap"}},"總計 "+formatHours(total)+" 閱讀")
+            )
+          ),
+          h("div",{style:{display:"flex",gap:6,alignItems:"center",flexWrap:"nowrap",flexShrink:0}},
+            h("button",{style:navBtn(tab==="shelf"),onClick:()=>setTab("shelf")},"書架"),
+            h("button",{style:navBtn(tab==="analytics"),onClick:()=>setTab("analytics")},"分析"),
+            h("button",{onClick:()=>setShowAdd(true),style:{padding:"7px 14px",borderRadius:6,cursor:"pointer",background:C.wine,border:"none",color:C.cream,fontSize:13,fontWeight:700,letterSpacing:1,marginLeft:4,boxShadow:`2px 2px 0 ${C.ink}40`,whiteSpace:"nowrap"}},"＋ 新增")
+          )
+        )
+      ),
+      h("div",{style:{height:3,background:`repeating-linear-gradient(90deg,${C.wine} 0,${C.wine} 6px,${C.bg} 6px,${C.bg} 10px)`}})
+    ),
+    // Main
+    h("div",{style:{maxWidth:1100,margin:"0 auto",padding:"28px 16px"}},
+      tab==="analytics"
+        ?h(Analytics,{books})
+        :h("div",null,
+          h("div",{style:{display:"flex",gap:6,marginBottom:24,flexWrap:"wrap"}},
+            filterOpts.map(f=>{
+              const a=filter===f; const count=f==="全部"?books.length:books.filter(b=>b.status===f).length;
+              return h("button",{key:f,onClick:()=>setFilter(f),style:{padding:"5px 16px",borderRadius:6,fontSize:13,cursor:"pointer",background:a?C.wine:"transparent",border:`1px solid ${a?C.wine:C.border}`,color:a?C.cream:C.inkMid,transition:"all 0.15s"}},
+                f,h("span",{style:{marginLeft:5,fontSize:11,opacity:0.7}},"("+count+")")
+              );
+            })
+          ),
+          filtered.length===0
+            ?h("div",{style:{textAlign:"center",padding:"80px 0"}},
+              h("div",{style:{fontSize:48,marginBottom:16,opacity:0.2}},"📖"),
+              h("div",{style:{color:C.inkLight,fontSize:15,letterSpacing:2}},"尚無書籍，點擊「新增」開始記錄吧")
+            )
+            :h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:18}},
+              filtered.map(book=>h(BookCard,{key:book.id,book,onTimer:toggleTimer,onOpen:setDetailBook,onEdit:setEditBook}))
+            )
+        )
+    ),
+    // Footer
+    h("div",{style:{borderTop:`3px double ${C.wine}`,padding:"16px 28px",textAlign:"center"}},
+      h("span",{style:{color:C.inkLight,fontSize:11,letterSpacing:3}},"◆ RE★Ding ◆")
+    ),
+    showAdd&&h(AddBookModal,{onAdd:addBook,onClose:()=>setShowAdd(false)}),
+    editBook&&h(EditBookModal,{book:editBook,onUpdate:u=>{updateBook(u);setEditBook(null);},onClose:()=>setEditBook(null),onDelete:id=>{setBooks(p=>p.filter(b=>b.id!==id));setEditBook(null);}}),
+    detailBook&&h(BookDetail,{book:books.find(b=>b.id===detailBook.id)||detailBook,onUpdate:updateBook,onClose:()=>setDetailBook(null)})
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(h(App, null));
+  </script>
+</body>
+</html>
