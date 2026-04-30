@@ -64,7 +64,7 @@ function formatTime(s) {
   if(mm>0) return `${mm}分${ss}秒`;
   return `${ss}秒`;
 }
-function formatHours(s) { return (s/3600).toFixed(1)+"h"; }
+function formatHours(s) { const hh=Math.floor(s/3600), mm=Math.floor((s%3600)/60); return `${hh}h${String(mm).padStart(2,"0")}m`; }
 
 function StarRating({value, onChange}) {
   const [hover, setHover] = useState(0);
@@ -432,6 +432,7 @@ function App() {
   const [editBook,setEditBook]=useState(null);
   const [tab,setTab]=useState("shelf");
   const [filter,setFilter]=useState("全部");
+  const [sortMode,setSortMode]=useState("newest");
 
   useEffect(()=>{ saveBooks(books); },[books]);
 
@@ -455,16 +456,29 @@ function App() {
   const toggleTimer=id=>setBooks(p=>p.map(b=>{
     if(b.id!==id) return b;
     if(!b.timerActive){
-      return {...b,timerActive:true,timerStart:Date.now()};
+      return {...b,timerActive:true,timerStart:Date.now(),lastActive:Date.now()};
     } else {
       const elapsed=b.timerStart?Math.floor((Date.now()-b.timerStart)/1000):0;
-      return {...b,timerActive:false,timerStart:null,totalSeconds:(b.totalSeconds||0)+elapsed};
+      return {...b,timerActive:false,timerStart:null,totalSeconds:(b.totalSeconds||0)+elapsed,lastActive:Date.now()};
     }
   }));
-  const updateBook=u=>{setBooks(p=>p.map(b=>b.id===u.id?u:b)); if(detailBook)setDetailBook(u);};
+  const updateBook=u=>{setBooks(p=>p.map(b=>b.id===u.id?{...u,lastActive:Date.now()}:b)); if(detailBook)setDetailBook(u);};
 
   const filterOpts=["全部",...STATUS_OPTIONS];
-  const filtered=filter==="全部"?books:books.filter(b=>b.status===filter);
+  const STATUS_GROUP_ORDER={"在讀":0,"想讀":1,"已讀":2,"棄讀":3};
+  const baseFiltered=filter==="全部"?books:books.filter(b=>b.status===filter);
+  const filtered=[...baseFiltered].sort((a,b)=>{
+    if(sortMode==="newest") return b.id-a.id;
+    if(sortMode==="oldest") return a.id-b.id;
+    if(sortMode==="time") return (b.totalSeconds||0)-(a.totalSeconds||0);
+    if(sortMode==="status") return (STATUS_GROUP_ORDER[a.status]??9)-(STATUS_GROUP_ORDER[b.status]??9);
+    if(sortMode==="recent") {
+      const aT=a.timerActive?Date.now():(a.lastActive||a.id);
+      const bT=b.timerActive?Date.now():(b.lastActive||b.id);
+      return bT-aT;
+    }
+    return 0;
+  });
   const total=books.reduce((s,b)=>{
     if(b.timerActive&&b.timerStart) return s+(b.totalSeconds||0)+Math.floor((Date.now()-b.timerStart)/1000);
     return s+(b.totalSeconds||0);
@@ -503,13 +517,27 @@ function App() {
       tab==="analytics"
         ?h(Analytics,{books})
         :h("div",null,
-          h("div",{style:{display:"flex",gap:6,marginBottom:24,flexWrap:"wrap"}},
+          h("div",{style:{display:"flex",gap:6,marginBottom:24,flexWrap:"wrap",alignItems:"center"}},
             filterOpts.map(f=>{
               const a=filter===f; const count=f==="全部"?books.length:books.filter(b=>b.status===f).length;
               return h("button",{key:f,onClick:()=>setFilter(f),style:{padding:"5px 16px",borderRadius:6,fontSize:13,cursor:"pointer",background:a?C.wine:"transparent",border:`1px solid ${a?C.wine:C.border}`,color:a?C.cream:C.inkMid,transition:"all 0.15s"}},
                 f,h("span",{style:{marginLeft:5,fontSize:11,opacity:0.7}},"("+count+")")
               );
-            })
+            }),
+            h("div",{style:{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}},
+              h("span",{style:{color:C.inkLight,fontSize:12,letterSpacing:1,whiteSpace:"nowrap"}},"排序"),
+              h("select",{
+                value:sortMode,
+                onChange:e=>setSortMode(e.target.value),
+                style:{fontFamily:"'Noto Serif TC',serif",fontSize:12,color:C.inkMid,background:C.cream,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",cursor:"pointer",outline:"none"}
+              },
+                h("option",{value:"newest"},"最新新增在前"),
+                h("option",{value:"oldest"},"最舊新增在前"),
+                h("option",{value:"time"},"閱讀時長由多到少"),
+                h("option",{value:"status"},"閱讀狀態分組"),
+                h("option",{value:"recent"},"最近計時／更動在前")
+              )
+            )
           ),
           filtered.length===0
             ?h("div",{style:{textAlign:"center",padding:"80px 0"}},
